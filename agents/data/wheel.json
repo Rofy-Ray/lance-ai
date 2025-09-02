@@ -1,0 +1,49 @@
+{
+  "CounterParenting": [
+    "Undermines the safe parent's parenting abilities and decisions",
+    "Denies or withholds consent/care for child's medical or therapeutic needs",
+    "Seeks to impose opposing values in the child to spite the safe parent"
+  ],
+  "AlienationAllegations": [
+    "Child favors the safe parent and rejects the abusive parent leading to false allegations of alienation",
+    "Parental alienation claims lodged against the safe parent as a legal strategy to cast doubt on their credibility",
+    "Valid claims of abuse labeled as alienation by the abusive parent as a defensive tactic"
+  ],
+  "NeglectfulParenting": [
+    "Exposes children to unsafe content, situations, or people",
+    "Creates concern and fear in the safe parent for child's welfare",
+    "Uses violence, intimidation, threats, manipulation, and ridicule to gain compliance from the children",
+    "Places the parent's needs above the child's needs"
+  ],
+  "CoerciveControl": [
+    "Creates a sense of fear that pervades all elements of the safe parent's life",
+    "Consistently belittles, undermines, shames, or criticizes the safe parent",
+    "Strategically manipulates family, friends, or community (triangulation) to remain in control",
+    "Imposes false narratives to make the safe parent doubt reality, memory, or perceptions (gaslighting)",
+    "Withholds child's social interaction to maintain abusive parent's sphere of control"
+  ],
+  "Isolation": [
+    "Monitors whereabouts, social interactions, social media via devices or spyware",
+    "Terrorizes and intimidates the safe parent with threats without rising to law enforcement involvement",
+    "Bombards the healthy parent with overwhelming emails, phone calls, manipulative threatening messages",
+    "Spreads lies and rumors to family, friends, teachers, and community to discredit the safe parent"
+  ],
+  "HarassmentStalking": [
+    "Unwanted persistent contact (calls, texts, emails) that is threatening or manipulative",
+    "Physical stalking or threats during child exchanges or at home",
+    "Surveillance, following or monitoring of the safe parent or child",
+    "Use of online tools to harass, track, or intimidate the safe parent"
+  ],
+  "LegalAbuse": [
+    "Misuse of court proceedings to control, harass, intimidate, coerce, or exhaust financial/emotional resources",
+    "Disregards court orders, makes false reports, or creates delays in proceedings",
+    "Seeks custody changes as revenge, punishment, or continued control",
+    "Uses legal threats to assert power and control"
+  ],
+  "FinancialAbuse": [
+    "Blocks access to bank accounts and other financial resources",
+    "Interferes with or jeopardizes job interviews, employment, or career advancement of the safe parent",
+    "Misuse of litigation to disadvantage the safe parent financially",
+    "Withholds, mismanages, or delays support payments and court-ordered reimbursements"
+  ]
+}

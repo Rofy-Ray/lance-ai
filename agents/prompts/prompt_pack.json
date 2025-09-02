@@ -1,0 +1,58 @@
+[
+  {
+    "id": "intake",
+    "prompt_template": "Act as a trauma-informed family-law triage analyst. From the attached documents for session {session_id}, extract incidents and tag them using the post-separation abuse wheel (CounterParenting, AlienationAllegations, NeglectfulParenting, CoerciveControl, Isolation, HarassmentStalking, LegalAbuse, FinancialAbuse). Return only a JSON matching the intake schema. For any missing critical data ask up to 3 clarifying questions. Do not guess.",
+    "input_schema": "schemas/intake_input.schema.json",
+    "output_schema": "schemas/intake_output.schema.json",
+    "eval_thresholds": {"urgent_quote_required": true, "min_confidence_for_urgent": 0.6}
+  },
+  {
+    "id": "analysis",
+    "prompt_template": "Act as a family-law analyst. Map intake incidents to coercive-control legal elements for {jurisdiction}. Output legal_matrix.json with severity 0-5 and citations for each element. Propose two mapping frameworks and recommend one.",
+    "input_schema": "schemas/analysis_input.schema.json",
+    "output_schema": "schemas/legal_matrix_output.schema.json",
+    "eval_thresholds": {"min_fact_support_per_element": 1, "min_confidence_for_expedite": 0.6}
+  },
+  {
+    "id": "psla",
+    "prompt_template": "Act as a litigation-risk analyst. Classify each filing as routine|aggressive|abusive with two supporting citations. Compute filing_repetition_index and novelty_score.",
+    "input_schema": "schemas/psla_input.schema.json",
+    "output_schema": "schemas/psla_output.schema.json",
+    "eval_thresholds": {"min_supporting_citations": 2, "repetition_threshold": 0.7}
+  },
+  {
+    "id": "hearing_pack",
+    "prompt_template": "Draft a hearing_pack.docx: exhibit index, proposed findings of fact (each finding must cite a source). Do not introduce new facts.",
+    "input_schema": "schemas/hearing_pack_input.schema.json",
+    "output_schema": "schemas/hearing_pack_output.schema.json",
+    "eval_thresholds": {"max_pages": 20, "require_citations_for_all_findings": true}
+  },
+  {
+    "id": "client_letter",
+    "prompt_template": "Write a one-page Grade 7-9 plain-language letter summarizing findings, immediate safety steps, and top 5 evidence items to collect. Include 'not legal advice' disclaimer.",
+    "input_schema": "schemas/client_letter_input.schema.json",
+    "output_schema": "schemas/client_letter_output.schema.json",
+    "eval_thresholds": {"readability_grade_max": 9}
+  },
+  {
+    "id": "declaration",
+    "prompt_template": "Draft a {n_pages_limit}-page declaration using only cited facts. Number paragraphs and add exhibit callouts.",
+    "input_schema": "schemas/declaration_input.schema.json",
+    "output_schema": "schemas/declaration_output.schema.json",
+    "eval_thresholds": {"require_citation_each_paragraph": true}
+  },
+  {
+    "id": "research",
+    "prompt_template": "Find top statutes/cases/practice guides on coercive control and PSLA in {jurisdiction} (past {time_horizon_years}). Provide pinpoint quotes and relevance.",
+    "input_schema": "schemas/research_input.schema.json",
+    "output_schema": "schemas/research_output.schema.json",
+    "eval_thresholds": {"min_authorities_per_category": 1}
+  },
+  {
+    "id": "quality_gate",
+    "prompt_template": "Score artifacts for citation density, quote fidelity, jurisdiction fit, trauma tone, child safety, and hallucination risk. Return eval.json.",
+    "input_schema": "schemas/quality_input.schema.json",
+    "output_schema": "schemas/quality_output.schema.json",
+    "eval_thresholds": {"hallucination_risk_fail": 0, "citation_density_target": 1.0}
+  }
+]

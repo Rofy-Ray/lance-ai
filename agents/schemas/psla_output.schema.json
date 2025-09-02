@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PSLAReportOutput",
+  "type": "object",
+  "required": ["session_id", "findings", "provenance"],
+  "properties": {
+    "session_id": { "type": "string" },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["filing_id", "classification", "rationale", "quote_spans"],
+        "properties": {
+          "filing_id": { "type": "string" },
+          "doc_id": { "type": "string" },
+          "date": { "type": ["string", "null"] },
+          "classification": {
+            "type": "string",
+            "enum": ["routine", "aggressive", "abusive"]
+          },
+          "rationale": { "type": "string" },
+          "quote_spans": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["quote", "doc_id", "page", "line_range"],
+              "properties": {
+                "quote": { "type": "string" },
+                "doc_id": { "type": "string" },
+                "page": { "type": "integer" },
+                "line_range": { "type": "string" }
+              }
+            }
+          },
+          "filing_repetition_index": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "novelty_score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "false_positive_risk": {
+            "type": "string",
+            "enum": ["low", "medium", "high"]
+          }
+        }
+      }
+    },
+    "summary": { "type": "string" },
+    "provenance": { "type": "object" }
+  }
+}

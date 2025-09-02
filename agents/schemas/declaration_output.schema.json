@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DeclarationOutput",
+  "type": "object",
+  "required": ["session_id", "declaration_path", "paragraphs", "provenance"],
+  "properties": {
+    "session_id": { "type": "string" },
+    "declaration_path": { "type": "string", "description": "Filesystem path or download URL to declaration.docx" },
+    "paragraphs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["paragraph_number", "text", "quote_spans", "citations_present"],
+        "properties": {
+          "paragraph_number": { "type": "integer" },
+          "date": { "type": ["string", "null"] },
+          "text": { "type": "string" },
+          "exhibit_callouts": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "quote_spans": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["quote", "doc_id", "page", "line_range"],
+              "properties": {
+                "quote": { "type": "string" },
+                "doc_id": { "type": "string" },
+                "page": { "type": "integer" },
+                "line_range": { "type": "string" }
+              }
+            }
+          },
+          "citations_present": { "type": "boolean" }
+        }
+      }
+    },
+    "n_pages": { "type": "integer" },
+    "provenance": { "type": "object" }
+  }
+}

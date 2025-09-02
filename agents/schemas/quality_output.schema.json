@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "QualityGateOutput",
+  "type": "object",
+  "required": ["session_id", "scores", "remediation", "routing", "provenance"],
+  "properties": {
+    "session_id": { "type": "string" },
+    "scores": {
+      "type": "object",
+      "required": ["citation_density", "quote_fidelity", "jurisdiction_fit", "trauma_tone", "child_safety_calibration", "hallucination_risk"],
+      "properties": {
+        "citation_density": { "type": "number", "minimum": 0, "maximum": 5 },
+        "quote_fidelity": { "type": "number", "minimum": 0, "maximum": 5 },
+        "jurisdiction_fit": { "type": "number", "minimum": 0, "maximum": 5 },
+        "trauma_tone": { "type": "number", "minimum": 0, "maximum": 5 },
+        "child_safety_calibration": { "type": "number", "minimum": 0, "maximum": 5 },
+        "hallucination_risk": { "type": "number", "minimum": 0, "maximum": 5 }
+      }
+    },
+    "remediation": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "routing": {
+      "type": "string",
+      "enum": ["accept", "return_to_retrieval", "require_human_review"]
+    },
+    "notes": { "type": "string" },
+    "provenance": { "type": "object" }
+  }
+}

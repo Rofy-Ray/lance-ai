@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ResearchOutput",
+  "type": "object",
+  "required": ["session_id", "authorities", "provenance"],
+  "properties": {
+    "session_id": { "type": "string" },
+    "authorities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "citation", "quote", "relevance", "jurisdiction"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["statute", "case", "practice_guide", "other"]
+          },
+          "citation": { "type": "string" },
+          "quote": { "type": "string" },
+          "pinpoint": { "type": ["string", "null"] },
+          "relevance": { "type": "string" },
+          "jurisdiction": { "type": "string" },
+          "url": { "type": ["string", "null"] },
+          "notes": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "summary": { "type": "string" },
+    "provenance": { "type": "object" }
+  }
+}

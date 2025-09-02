@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LegalMatrixOutput",
+  "type": "object",
+  "required": ["session_id", "mappings", "provenance"],
+  "properties": {
+    "session_id": { "type": "string" },
+    "mappings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["incident_id", "wheel_tag", "legal_elements"],
+        "properties": {
+          "incident_id": { "type": "string" },
+          "wheel_tag": { "type": "string" },
+          "summary": { "type": "string" },
+          "legal_elements": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["element", "fact_support", "severity", "confidence"],
+              "properties": {
+                "element": { "type": "string" },
+                "statutory_standard": { "type": ["string", "null"] },
+                "fact_support": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["quote", "doc_id", "page", "line_range"],
+                    "properties": {
+                      "quote": { "type": "string" },
+                      "doc_id": { "type": "string" },
+                      "page": { "type": "integer" },
+                      "line_range": { "type": "string" }
+                    }
+                  }
+                },
+                "counter_evidence": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "quote": { "type": "string" },
+                      "doc_id": { "type": "string" },
+                      "page": { "type": "integer" },
+                      "line_range": { "type": "string" }
+                    }
+                  }
+                },
+                "severity": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 5
+                },
+                "confidence": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "recommendations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "recommendation": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "provenance": { "type": "object" }
+  }
+}
