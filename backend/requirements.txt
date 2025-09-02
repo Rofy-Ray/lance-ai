@@ -1,6 +1,7 @@
 fastapi
 uvicorn
 python-multipart
+python-dotenv
 python-docx
 pymupdf
 pdfminer.six

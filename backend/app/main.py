@@ -10,6 +10,10 @@ from pydantic import BaseModel
 import json
 import shutil
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 from app.models import SessionCreate, SessionResponse, SessionStatus, SessionDelete
 from app.session_manager import SessionManager
