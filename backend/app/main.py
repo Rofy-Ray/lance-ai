@@ -2,18 +2,25 @@ import os
 import uuid
 import asyncio
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional
-from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
-from fastapi.responses import FileResponse
+from typing import List, Dict, Optional, Any
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, FileResponse
+from pathlib import Path
+import logging
+import tempfile
+from dotenv import load_dotenv
 from pydantic import BaseModel
 import json
 import shutil
-from pathlib import Path
-from dotenv import load_dotenv
+from uvicorn import Config, Server
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 from app.models import SessionCreate, SessionResponse, SessionStatus, SessionDelete
 from app.session_manager import SessionManager
@@ -122,20 +129,25 @@ async def upload_files(files: List[UploadFile] = File(...)):
 @app.post("/api/session/{session_id}/start")
 async def start_analysis(session_id: str, background_tasks: BackgroundTasks):
     """Trigger intake agent and start analysis pipeline"""
+    logger.info(f"Starting analysis for session {session_id}")
     try:
         session = await session_manager.get_session(session_id)
         if not session:
+            logger.error(f"Session {session_id} not found when trying to start analysis")
             raise HTTPException(status_code=404, detail="Session not found")
         
+        logger.info(f"Session {session_id}: Adding intake agent task to background")
         # Start intake agent in background
         background_tasks.add_task(agents_runner.run_intake_agent, session_id)
         
         # Update session status
         await session_manager.update_session_status(session_id, "processing", "Starting document intake analysis...")
+        logger.info(f"Session {session_id}: Analysis pipeline initiated successfully")
         
         return {"status": "started", "message": "Analysis pipeline initiated"}
         
     except Exception as e:
+        logger.error(f"Failed to start analysis for session {session_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to start analysis: {str(e)}")
 
 @app.post("/api/session/{session_id}/answer")
@@ -169,41 +181,62 @@ async def get_session_status(session_id: str):
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
         
+        # Log the full session data to debug missing fields
+        logger.info(f"Session {session_id} status data keys: {list(session.keys())}")
+        
+        # Safely extract clarifying questions with proper fallbacks
+        clarifying_questions = session.get("clarifying_questions", [])
+        pending_questions = session.get("pending_questions", [])
+        
+        # Ensure questions are in correct format
+        if not isinstance(clarifying_questions, list):
+            clarifying_questions = []
+        if not isinstance(pending_questions, list):
+            pending_questions = []
+            
         return SessionStatus(
             session_id=session_id,
             status=session["status"],
             progress=session.get("progress", 0),
             current_stage=session.get("current_stage", ""),
+            current_step=session.get("current_step", ""),
+            step_progress=session.get("step_progress", 0),
+            step_start_time=session.get("step_start_time"),
+            estimated_completion_time=session.get("estimated_completion_time"),
+            detailed_status_message=session.get("detailed_status_message", ""),
             message=session.get("message", ""),
             has_clarifying_questions=session.get("has_clarifying_questions", False),
-            clarifying_questions=session.get("clarifying_questions", []),
+            clarifying_questions=clarifying_questions,
+            pending_questions=pending_questions,
             completed_stages=session.get("completed_stages", []),
+            failed_stages=session.get("failed_stages", []),
+            artifacts_available=session.get("artifacts_available", []),
             artifacts_ready=session.get("artifacts_ready", False),
             created_at=session["created_at"],
             expires_at=session["expires_at"]
         )
         
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
+        logger.error(f"Error getting session status for {session_id}: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to get status: {str(e)}")
 
 @app.get("/api/session/{session_id}/artifacts")
-async def list_artifacts(session_id: str):
-    """List available artifacts for download"""
+async def get_session_artifacts(session_id: str):
+    """Get available artifacts for session"""
     try:
-        session = await session_manager.get_session(session_id)
-        if not session:
-            raise HTTPException(status_code=404, detail="Session not found")
-        
         artifacts = await session_manager.get_session_artifacts(session_id)
-        
         return {
             "session_id": session_id,
             "artifacts": artifacts,
-            "download_base_url": f"/api/session/{session_id}/download"
+            "download_base_url": f"/api/session/{session_id}/download/"
         }
-        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list artifacts: {str(e)}")
+        logger.error(f"Failed to get artifacts for session {session_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve artifacts")
 
 @app.get("/api/session/{session_id}/download/{artifact_name}")
 async def download_artifact(session_id: str, artifact_name: str):

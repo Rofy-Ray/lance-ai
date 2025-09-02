@@ -26,8 +26,8 @@ class PurgeService:
             # 1. Get session data before deletion
             session = await self.session_manager.get_session(session_id)
             if not session:
-                logger.warning(f"Session {session_id} not found for purge")
-                return False
+                logger.debug(f"Session {session_id} already purged or not found")
+                return True  # Consider already-purged sessions as successful
             
             # 2. Delete session files and directories
             session_dir = self.upload_tmp_dir / f"session_{session_id}"
@@ -63,6 +63,7 @@ class PurgeService:
             expired_sessions = await self.session_manager.get_expired_sessions()
             
             if not expired_sessions:
+                logger.debug("No expired sessions found for cleanup")
                 return 0
             
             logger.info(f"Found {len(expired_sessions)} expired sessions to cleanup")
@@ -76,7 +77,10 @@ class PurgeService:
                 except Exception as e:
                     logger.error(f"Failed to cleanup expired session {session_id}: {e}")
             
-            logger.info(f"Successfully cleaned up {cleanup_count} expired sessions")
+            if cleanup_count > 0:
+                logger.info(f"Successfully cleaned up {cleanup_count} expired sessions")
+            else:
+                logger.debug("No sessions required cleanup")
             return cleanup_count
             
         except Exception as e:

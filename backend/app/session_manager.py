@@ -57,16 +57,21 @@ class SessionManager:
         session_data = SessionData(
             session_id=session_id,
             status="created",
-            created_at=now,
-            expires_at=expires_at,
+            created_at=now.isoformat() + "Z",
+            expires_at=expires_at.isoformat() + "Z",
             uploaded_files=documents,
-            message="Session created with uploaded files"
+            message="Session created with uploaded files",
+            current_step="",
+            step_progress=0,
+            step_start_time=None,
+            estimated_completion_time=expires_at.isoformat() + "Z",
+            detailed_status_message="Documents uploaded successfully"
         )
         
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 "INSERT INTO sessions (session_id, status, created_at, expires_at, data) VALUES (?, ?, ?, ?, ?)",
-                (session_id, "created", now.isoformat(), expires_at.isoformat(), session_data.model_dump_json())
+                (session_id, "created", now.isoformat() + "Z", expires_at.isoformat() + "Z", session_data.model_dump_json())
             )
             await db.commit()
         
@@ -77,7 +82,7 @@ class SessionManager:
         async with aiosqlite.connect(self.db_path) as db:
             async with db.execute(
                 "SELECT data FROM sessions WHERE session_id = ? AND expires_at > ?",
-                (session_id, datetime.utcnow().isoformat())
+                (session_id, datetime.utcnow().isoformat() + "Z")
             ) as cursor:
                 row = await cursor.fetchone()
                 if row:
@@ -98,6 +103,15 @@ class SessionManager:
         for key, value in kwargs.items():
             if key in session:
                 session[key] = value
+        
+        # Update step timing if provided
+        if "current_step" in kwargs:
+            session["step_start_time"] = datetime.utcnow().isoformat() + "Z"
+        
+        # Update estimated completion time if provided
+        if "estimated_completion_time" in kwargs and kwargs["estimated_completion_time"]:
+            if isinstance(kwargs["estimated_completion_time"], datetime):
+                session["estimated_completion_time"] = kwargs["estimated_completion_time"].isoformat() + "Z"
         
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
@@ -225,3 +239,43 @@ class SessionManager:
             return 'image'
         else:
             return 'unknown'
+    
+    async def get_session_artifacts(self, session_id: str) -> List[Dict[str, Any]]:
+        """Get list of available artifacts for session with details"""
+        try:
+            artifacts_dir = f"/tmp/lance/artifacts/{session_id}"
+            if not os.path.exists(artifacts_dir):
+                return []
+            
+            artifacts = []
+            for filename in os.listdir(artifacts_dir):
+                filepath = os.path.join(artifacts_dir, filename)
+                if os.path.isfile(filepath):
+                    stat = os.stat(filepath)
+                    artifacts.append({
+                        "filename": filename,
+                        "size": stat.st_size,
+                        "created_at": datetime.fromtimestamp(stat.st_ctime).isoformat(),
+                        "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat()
+                    })
+            
+            return artifacts
+        except Exception:
+            return []
+    
+    async def get_artifact_path(self, session_id: str, artifact_name: str) -> Optional[str]:
+        """Get full path to specific artifact"""
+        try:
+            artifacts_dir = f"/tmp/lance/artifacts/{session_id}"
+            artifact_path = os.path.join(artifacts_dir, artifact_name)
+            
+            # Security check - ensure artifact is within session directory
+            if not os.path.commonpath([artifacts_dir, artifact_path]) == artifacts_dir:
+                return None
+                
+            if os.path.exists(artifact_path) and os.path.isfile(artifact_path):
+                return artifact_path
+            
+            return None
+        except Exception:
+            return None

@@ -59,6 +59,16 @@ const ARTIFACT_TYPES = {
       </svg>
     ),
     color: 'amber'
+  },
+  analysis_summary: {
+    name: 'Analysis Summary',
+    description: 'Comprehensive analysis overview and findings',
+    icon: (
+      <svg className="h-8 w-8 text-indigo-600" fill="currentColor" viewBox="0 0 20 20">
+        <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z" clipRule="evenodd" />
+      </svg>
+    ),
+    color: 'indigo'
   }
 }
 
@@ -76,8 +86,17 @@ export default function ArtifactPanel({ isOpen, onClose, sessionId, artifacts }:
   const fetchArtifactDetails = async () => {
     setLoading(true)
     try {
-      const response = await axios.get(`/api/sessions/${sessionId}/artifacts`)
-      setArtifactDetails(response.data.artifacts || [])
+      const response = await axios.get(`/api/session/${sessionId}/artifacts`)
+      // Use detailed artifact objects from backend
+      const artifactList = response.data.artifacts || []
+      const details = artifactList.map((artifact: any) => ({
+        filename: typeof artifact === 'string' ? artifact : artifact.filename,
+        type: getArtifactType(typeof artifact === 'string' ? artifact : artifact.filename),
+        size: typeof artifact === 'string' ? 0 : artifact.size,
+        created_at: typeof artifact === 'string' ? new Date().toISOString() : artifact.created_at,
+        description: ARTIFACT_TYPES[getArtifactType(typeof artifact === 'string' ? artifact : artifact.filename)].description
+      }))
+      setArtifactDetails(details)
     } catch (error) {
       console.error('Failed to fetch artifact details:', error)
       toast.error('Failed to load artifact details')
@@ -90,7 +109,7 @@ export default function ArtifactPanel({ isOpen, onClose, sessionId, artifacts }:
     setDownloadingFiles(prev => new Set(prev).add(filename))
     
     try {
-      const response = await axios.get(`/api/sessions/${sessionId}/download/${filename}`, {
+      const response = await axios.get(`/api/session/${sessionId}/download/${filename}`, {
         responseType: 'blob'
       })
       
@@ -140,6 +159,7 @@ export default function ArtifactPanel({ isOpen, onClose, sessionId, artifacts }:
     if (filename.includes('client_letter')) return 'client_letter'
     if (filename.includes('declaration')) return 'declaration'
     if (filename.includes('research')) return 'research_memo'
+    if (filename.includes('analysis_summary')) return 'analysis_summary'
     return 'hearing_pack' // default
   }
 
@@ -181,11 +201,11 @@ export default function ArtifactPanel({ isOpen, onClose, sessionId, artifacts }:
                 <button
                   onClick={downloadAll}
                   disabled={loading || downloadingFiles.size > 0}
-                  className="btn-success disabled:opacity-50"
+                  className="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg font-medium flex items-center disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {downloadingFiles.size > 0 ? (
                     <>
-                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24">
+                      <svg className="animate-spin h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                       </svg>
@@ -281,7 +301,7 @@ export default function ArtifactPanel({ isOpen, onClose, sessionId, artifacts }:
                               {formatFileSize(artifact.size)}
                             </span>
                             <span className="dm-sans-caption-300 text-secondary-500 dark:text-secondary-400">
-                              {new Date(artifact.created_at).toLocaleTimeString()}
+                              {new Date(artifact.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </span>
                           </div>
                           

@@ -12,16 +12,33 @@ interface ProgressStepperProps {
   currentStep: string | null
   completedSteps: string[]
   failedSteps: string[]
-  status: 'uploading' | 'processing' | 'waiting_for_input' | 'completed' | 'error' | 'deleted'
+  status: 'uploading' | 'processing' | 'waiting_for_input' | 'completed' | 'requires_review' | 'error' | 'deleted'
+  stepProgress?: number // 0-100 for current step
+  detailedStatusMessage?: string
+  artifactsReady?: boolean
+  onViewDocuments?: () => void
 }
 
 export default function ProgressStepper({
   steps,
   currentStep,
-  completedSteps,
-  failedSteps,
-  status
+  completedSteps = [],
+  failedSteps = [],
+  status,
+  stepProgress = 0,
+  detailedStatusMessage = "",
+  artifactsReady = false,
+  onViewDocuments
 }: ProgressStepperProps) {
+  // Debug logging for progress stepper
+  console.log('ProgressStepper props:', {
+    currentStep,
+    completedSteps,
+    failedSteps,
+    status,
+    stepProgress,
+    detailedStatusMessage
+  })
   const getStepStatus = (stepId: string) => {
     if (failedSteps.includes(stepId)) return 'failed'
     if (completedSteps.includes(stepId)) return 'completed'
@@ -46,8 +63,37 @@ export default function ProgressStepper({
         )
       case 'current':
         return (
-          <div className="h-5 w-5 border-2 border-white rounded-full animate-pulse">
-            <div className="h-1 w-1 bg-white rounded-full mx-auto mt-1.5"></div>
+          <div className="relative h-5 w-5">
+            {/* Circular progress ring */}
+            <svg className="h-5 w-5 transform -rotate-90" viewBox="0 0 20 20">
+              <circle
+                cx="10"
+                cy="10"
+                r="8"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className="text-white/30"
+              />
+              <motion.circle
+                cx="10"
+                cy="10"
+                r="8"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className="text-white"
+                strokeLinecap="round"
+                strokeDasharray={50.27} // 2 * π * 8
+                initial={{ strokeDashoffset: 50.27 }}
+                animate={{ strokeDashoffset: 50.27 - (50.27 * stepProgress / 100) }}
+                transition={{ duration: 0.5, ease: "easeOut" }}
+              />
+            </svg>
+            {/* Center dot */}
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="h-1.5 w-1.5 bg-white rounded-full animate-pulse"></div>
+            </div>
           </div>
         )
       default:
@@ -134,7 +180,7 @@ export default function ProgressStepper({
                         {step.name}
                         {stepStatus === 'current' && (
                           <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-100 dark:bg-primary-900/30 text-primary-800 dark:text-primary-200">
-                            In Progress
+                            {stepProgress}% Complete
                           </span>
                         )}
                         {stepStatus === 'failed' && (
@@ -169,7 +215,7 @@ export default function ProgressStepper({
                             <div className="h-2 w-2 bg-primary-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
                           </div>
                           <span className="dm-sans-caption-300 text-primary-600 dark:text-primary-400">
-                            Processing...
+                            {detailedStatusMessage || "Processing..."}
                           </span>
                         </div>
                       )}
@@ -195,36 +241,59 @@ export default function ProgressStepper({
               )}
             </div>
             
-            {status === 'processing' && (
-              <div className="flex items-center space-x-2">
-                <div className="h-2 w-2 bg-primary-500 rounded-full animate-pulse"></div>
-                <span className="dm-sans-small-400 text-primary-600 dark:text-primary-400">
-                  Processing
-                </span>
-              </div>
-            )}
-            
-            {status === 'completed' && (
-              <div className="flex items-center space-x-2">
-                <svg className="h-4 w-4 text-success-500" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                </svg>
-                <span className="dm-sans-small-400 text-success-600 dark:text-success-400">
-                  Complete
-                </span>
-              </div>
-            )}
-            
-            {status === 'error' && (
-              <div className="flex items-center space-x-2">
-                <svg className="h-4 w-4 text-danger-500" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                </svg>
-                <span className="dm-sans-small-400 text-danger-600 dark:text-danger-400">
-                  Error
-                </span>
-              </div>
-            )}
+            <div className="flex items-center space-x-3">
+              {status === 'processing' && (
+                <div className="flex items-center space-x-2">
+                  <div className="h-2 w-2 bg-primary-500 rounded-full animate-pulse"></div>
+                  <span className="dm-sans-small-400 text-primary-600 dark:text-primary-400">
+                    Processing
+                  </span>
+                </div>
+              )}
+              
+              {status === 'completed' && (
+                <div className="flex items-center space-x-2">
+                  <svg className="h-4 w-4 text-success-500" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                  <span className="dm-sans-small-400 text-success-600 dark:text-success-400">
+                    Complete
+                  </span>
+                </div>
+              )}
+              
+              {status === 'requires_review' && (
+                <div className="flex items-center space-x-2">
+                  <svg className="h-4 w-4 text-success-500" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                  <span className="dm-sans-small-400 text-success-600 dark:text-success-400">
+                    Complete
+                  </span>
+                </div>
+              )}
+              
+              {status === 'error' && (
+                <div className="flex items-center space-x-2">
+                  <svg className="h-4 w-4 text-danger-500" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                  <span className="dm-sans-small-400 text-danger-600 dark:text-danger-400">
+                    Error
+                  </span>
+                </div>
+              )}
+
+              {/* View Documents Button */}
+              {artifactsReady && onViewDocuments && (status === 'completed' || status === 'requires_review') && (
+                <button
+                  onClick={onViewDocuments}
+                  className="bg-success-600 hover:bg-success-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors"
+                >
+                  View Documents
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>

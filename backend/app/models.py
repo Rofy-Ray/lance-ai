@@ -19,10 +19,18 @@ class SessionStatus(BaseModel):
     message: str
     has_clarifying_questions: bool = False
     clarifying_questions: List[Dict[str, Any]] = []
+    pending_questions: List[Dict[str, Any]] = []
     completed_stages: List[str] = []
+    failed_stages: List[str] = []
     artifacts_ready: bool = False
     created_at: datetime
     expires_at: datetime
+    current_step: str = ""
+    step_progress: int = 0  # 0-100 for current step
+    step_start_time: Optional[datetime] = None
+    estimated_completion_time: Optional[datetime] = None
+    detailed_status_message: str = ""
+    artifacts_available: List[str] = []
 
 class SessionDelete(BaseModel):
     confirm: bool
@@ -62,6 +70,13 @@ class SessionData(BaseModel):
     clarifying_questions: List[Dict[str, Any]] = []
     clarifying_answers: Dict[str, str] = {}
     completed_stages: List[str] = []
+    failed_stages: List[str] = []
     artifacts: Dict[str, str] = {}  # artifact_name -> file_path
     agent_outputs: Dict[str, Dict[str, Any]] = {}  # agent_id -> output
     artifacts_ready: bool = False
+    current_step: str = ""
+    step_progress: int = 0
+    step_start_time: Optional[datetime] = None
+    estimated_completion_time: Optional[datetime] = None
+    detailed_status_message: str = ""
+    artifacts_available: List[str] = []

@@ -11,19 +11,36 @@ import { toast } from 'react-hot-toast'
 
 interface SessionStatus {
   session_id: string
-  status: 'uploading' | 'processing' | 'waiting_for_input' | 'completed' | 'error' | 'deleted'
-  current_agent: string | null
-  agents_completed: string[]
-  agents_failed: string[]
+  status: 'uploading' | 'processing' | 'waiting_for_input' | 'completed' | 'requires_review' | 'error' | 'deleted'
+  progress: number
+  current_stage: string
+  current_step: string
+  current_agent?: string | null
+  step_progress: number
+  detailed_status_message: string
+  estimated_completion_time?: string
+  agents_completed?: string[]
+  agents_failed?: string[]
+  completed_stages?: string[]
+  failed_stages?: string[]
   created_at: string
   expires_at: string
   artifacts_available: string[]
+  artifacts_ready: boolean
+  message: string
+  has_clarifying_questions: boolean
+  clarifying_questions: Array<{
+    agent: string
+    question: string
+    context?: string
+  }>
   pending_questions?: Array<{
     agent: string
     question: string
     context?: string
   }>
   error_message?: string
+  step_start_time?: string
 }
 
 const AGENT_STEPS = [
@@ -43,23 +60,25 @@ export default function SessionPage() {
   const [sessionStatus, setSessionStatus] = useState<SessionStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [showChat, setShowChat] = useState(false)
+  const [showChatModal, setShowChatModal] = useState(false)
   const [showArtifacts, setShowArtifacts] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null)
+  const [countdownText, setCountdownText] = useState<string>('')
 
   // Fetch session status
   const fetchSessionStatus = async () => {
     if (!sessionId || typeof sessionId !== 'string') return
 
     try {
-      const response = await axios.get(`/api/sessions/${sessionId}/status`)
+      const response = await axios.get(`/api/session/${sessionId}/status`)
       const status: SessionStatus = response.data
+      console.log('Received session status:', status)
       setSessionStatus(status)
       setError(null)
 
       // Stop polling if session is completed, error, or deleted
-      if (['completed', 'error', 'deleted'].includes(status.status)) {
+      if (['completed', 'requires_review', 'error', 'deleted'].includes(status.status)) {
         if (pollingInterval) {
           clearInterval(pollingInterval)
           setPollingInterval(null)
@@ -68,23 +87,55 @@ export default function SessionPage() {
 
       // Show chat modal if there are pending questions
       if (status.pending_questions && status.pending_questions.length > 0) {
-        setShowChat(true)
+        setShowChatModal(true)
       }
 
-      // Show artifacts panel if completed
-      if (status.status === 'completed' && status.artifacts_available.length > 0) {
+      // Show artifacts panel if artifacts are ready
+      if ((status.status === 'completed' || status.status === 'requires_review') && 
+          status.artifacts_ready && status.artifacts_available.length > 0) {
         setShowArtifacts(true)
+        // Show completion notification
+        if (!localStorage.getItem(`notified_${sessionId}`)) {
+          toast.success('Analysis complete! Your legal documents are ready for download.')
+          localStorage.setItem(`notified_${sessionId}`, 'true')
+        }
+        
+        // Start countdown timer
+        const cleanup = updateCountdown(status.expires_at)
+        return cleanup
       }
 
     } catch (err: any) {
       console.error('Failed to fetch session status:', err)
+      console.error('Error details:', {
+        status: err.response?.status,
+        data: err.response?.data,
+        message: err.message
+      })
       
+      // Handle specific error cases
       if (err.response?.status === 404) {
-        setError('Session not found or has been deleted')
-      } else if (err.response?.status === 410) {
-        setError('Session has expired and been automatically deleted')
+        setError('Session not found or has expired')
+        console.log('Session 404 - stopping all polling and redirecting')
+        // Immediately stop polling and redirect to home
+        if (pollingInterval) {
+          clearInterval(pollingInterval)
+          setPollingInterval(null)
+        }
+        // Redirect to home page after a brief delay
+        setTimeout(() => {
+          router.push('/')
+        }, 2000)
+      } else if (err.response?.status === 500) {
+        setError('Server error occurred')
       } else {
-        setError('Failed to load session status')
+        setError('Failed to connect to server')
+      }
+      
+      // Stop polling on any error
+      if (pollingInterval) {
+        clearInterval(pollingInterval)
+        setPollingInterval(null)
       }
     } finally {
       setLoading(false)
@@ -96,7 +147,7 @@ export default function SessionPage() {
     if (!sessionId || typeof sessionId !== 'string') return
 
     try {
-      await axios.post(`/api/sessions/${sessionId}/start`)
+      await axios.post(`/api/session/${sessionId}/start`)
       toast.success('Processing started!')
       
       // Start polling for status updates
@@ -114,8 +165,8 @@ export default function SessionPage() {
     if (!sessionId || typeof sessionId !== 'string') return
 
     try {
-      await axios.post(`/api/sessions/${sessionId}/answer`, { answer })
-      setShowChat(false)
+      await axios.post(`/api/session/${sessionId}/answer`, { answer })
+      setShowChatModal(false)
       toast.success('Response submitted!')
       
       // Resume polling
@@ -131,17 +182,49 @@ export default function SessionPage() {
   }
 
   // Handle session deletion
-  const handleDelete = async () => {
+  const handleDeleteSession = async () => {
     if (!sessionId || typeof sessionId !== 'string') return
 
     try {
-      await axios.delete(`/api/sessions/${sessionId}`)
+      await axios.post(`/api/session/${sessionId}/delete`, { confirm: true })
       toast.success('Session deleted successfully')
       router.push('/')
     } catch (err: any) {
       console.error('Failed to delete session:', err)
       toast.error(err.response?.data?.detail || 'Failed to delete session')
     }
+  }
+
+  // Update countdown timer
+  const updateCountdown = (expiresAt: string) => {
+    const updateTimer = () => {
+      const now = new Date().getTime()
+      const expiry = new Date(expiresAt).getTime()
+      const timeLeft = expiry - now
+
+      if (timeLeft <= 0) {
+        setCountdownText('Files have expired')
+        return
+      }
+
+      const hours = Math.floor(timeLeft / (1000 * 60 * 60))
+      const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60))
+      const seconds = Math.floor((timeLeft % (1000 * 60)) / 1000)
+
+      if (hours > 0) {
+        setCountdownText(`Files expire in ${hours}h ${minutes}m ${seconds}s`)
+      } else if (minutes > 0) {
+        setCountdownText(`Files expire in ${minutes}m ${seconds}s`)
+      } else {
+        setCountdownText(`Files expire in ${seconds}s`)
+      }
+    }
+
+    updateTimer()
+    const countdownInterval = setInterval(updateTimer, 1000)
+    
+    // Clean up on component unmount
+    return () => clearInterval(countdownInterval)
   }
 
   useEffect(() => {
@@ -155,6 +238,36 @@ export default function SessionPage() {
       }
     }
   }, [sessionId])
+
+  // Enhanced polling with dynamic intervals
+  useEffect(() => {
+    if (sessionStatus && ['processing', 'waiting_for_input'].includes(sessionStatus.status)) {
+      // Faster polling during active processing (1 second)
+      console.log('Starting fast polling for processing status')
+      const interval = setInterval(() => {
+        console.log('Polling for status updates...')
+        fetchSessionStatus()
+      }, 1000)
+      setPollingInterval(interval)
+    } else if (sessionStatus && sessionStatus.status === 'uploading') {
+      // Medium polling for uploading (2 seconds)
+      console.log('Starting medium polling for uploading status')
+      const interval = setInterval(fetchSessionStatus, 2000)
+      setPollingInterval(interval)
+    } else {
+      // Clear polling for completed/error states
+      if (pollingInterval) {
+        clearInterval(pollingInterval)
+        setPollingInterval(null)
+      }
+    }
+
+    return () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval)
+      }
+    }
+  }, [sessionStatus?.status])
 
   if (loading) {
     return (
@@ -195,9 +308,37 @@ export default function SessionPage() {
     )
   }
 
-  const timeRemaining = new Date(sessionStatus.expires_at).getTime() - Date.now()
-  const hoursRemaining = Math.max(0, Math.floor(timeRemaining / (1000 * 60 * 60)))
-  const minutesRemaining = Math.max(0, Math.floor((timeRemaining % (1000 * 60 * 60)) / (1000 * 60)))
+  // ... (rest of the code remains the same)
+
+  // Fix timezone handling - ensure we're comparing UTC times consistently
+  const expiryTime = new Date(sessionStatus.expires_at).getTime()
+  const currentTime = Date.now()
+  const timeRemaining = Math.max(0, expiryTime - currentTime)
+  const totalMinutesRemaining = Math.floor(timeRemaining / (1000 * 60))
+  const hoursRemaining = Math.floor(totalMinutesRemaining / 60)
+  const minutesRemaining = totalMinutesRemaining % 60
+  
+  // Debug logging for time calculation
+  console.log('Time debugging:', {
+    expires_at: sessionStatus.expires_at,
+    current_time: new Date().toISOString(),
+    expiryTime,
+    currentTime,
+    timeRemaining,
+    totalMinutesRemaining,
+    hoursRemaining,
+    minutesRemaining
+  })
+  
+  // Debug session status for progress updates
+  console.log('Current session status for progress:', {
+    status: sessionStatus.status,
+    current_step: sessionStatus.current_step,
+    step_progress: sessionStatus.step_progress,
+    detailed_status_message: sessionStatus.detailed_status_message,
+    completed_stages: sessionStatus.completed_stages,
+    current_stage: sessionStatus.current_stage
+  })
 
   return (
     <Layout title={`Session ${sessionId.slice(-8)} - Lance AI`}>
@@ -215,20 +356,22 @@ export default function SessionPage() {
             </div>
             
             <div className="flex items-center space-x-4 mt-4 sm:mt-0">
-              {/* Timer */}
-              <div className="flex items-center space-x-2 text-secondary-500 dark:text-secondary-400">
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <span className="dm-sans-small-400">
-                  {hoursRemaining}h {minutesRemaining}m remaining
-                </span>
-              </div>
+              {/* Timer - show countdown for completed sessions with artifacts */}
+              {(sessionStatus.status === 'completed' || sessionStatus.status === 'requires_review') && sessionStatus.artifacts_ready && countdownText && (
+                <div className="flex items-center space-x-2 px-3 py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                  <svg className="h-5 w-5 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="dm-sans-small-400 font-medium text-red-700 dark:text-red-300">
+                    {countdownText}
+                  </span>
+                </div>
+              )}
 
               {/* Delete Button */}
               <button
                 onClick={() => setShowDeleteModal(true)}
-                className="btn-danger-outline"
+                className="btn-danger"
               >
                 Delete Session
               </button>
@@ -286,43 +429,17 @@ export default function SessionPage() {
             </motion.div>
           )}
 
-          {sessionStatus.status === 'completed' && (
-            <motion.div
-              initial={{ opacity: 0, y: -20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="card bg-success-50 dark:bg-success-900/20 border-success-200 dark:border-success-800 mb-8"
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <svg className="h-8 w-8 text-success-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <div>
-                    <h3 className="dm-sans-body-500 font-medium text-success-900 dark:text-success-100">
-                      Analysis Complete
-                    </h3>
-                    <p className="dm-sans-small-400 text-success-700 dark:text-success-300">
-                      {sessionStatus.artifacts_available.length} artifacts ready for download
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowArtifacts(true)}
-                  className="btn-success"
-                >
-                  View Artifacts
-                </button>
-              </div>
-            </motion.div>
-          )}
-
           {/* Progress Stepper */}
           <ProgressStepper
             steps={AGENT_STEPS}
-            currentStep={sessionStatus.current_agent}
-            completedSteps={sessionStatus.agents_completed}
-            failedSteps={sessionStatus.agents_failed}
+            currentStep={sessionStatus.current_step || sessionStatus.current_agent || sessionStatus.current_stage}
+            completedSteps={sessionStatus.completed_stages || sessionStatus.agents_completed || []}
+            failedSteps={sessionStatus.failed_stages || sessionStatus.agents_failed || []}
             status={sessionStatus.status}
+            stepProgress={sessionStatus.step_progress || 0}
+            detailedStatusMessage={sessionStatus.detailed_status_message || sessionStatus.message || ""}
+            artifactsReady={sessionStatus.artifacts_ready}
+            onViewDocuments={() => setShowArtifacts(true)}
           />
 
           {/* Waiting for Input Banner */}
@@ -347,7 +464,7 @@ export default function SessionPage() {
                   </div>
                 </div>
                 <button
-                  onClick={() => setShowChat(true)}
+                  onClick={() => setShowChatModal(true)}
                   className="btn-warning"
                 >
                   Answer Questions
@@ -359,8 +476,8 @@ export default function SessionPage() {
 
         {/* Modals */}
         <ChatModal
-          isOpen={showChat}
-          onClose={() => setShowChat(false)}
+          isOpen={showChatModal}
+          onClose={() => setShowChatModal(false)}
           questions={sessionStatus.pending_questions || []}
           onSubmit={handleChatResponse}
         />
@@ -375,7 +492,7 @@ export default function SessionPage() {
         <DeleteModal
           isOpen={showDeleteModal}
           onClose={() => setShowDeleteModal(false)}
-          onConfirm={handleDelete}
+          onConfirm={handleDeleteSession}
           sessionId={sessionStatus.session_id}
         />
       </div>

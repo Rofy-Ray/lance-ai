@@ -28,6 +28,15 @@ export default function Home() {
       const { session_id } = response.data
       toast.success('Files uploaded successfully!')
       
+      // Start processing immediately
+      try {
+        await axios.post(`/api/session/${session_id}/start`)
+        toast.success('Processing started!')
+      } catch (startError: any) {
+        console.error('Failed to start processing:', startError)
+        toast.error('Upload successful, but failed to start processing')
+      }
+      
       // Navigate to session page
       router.push(`/session/${session_id}`)
       
