@@ -158,7 +158,7 @@ export default function DeleteModal({ isOpen, onClose, onConfirm, sessionId }: D
               <button
                 onClick={onClose}
                 disabled={isDeleting}
-                className="btn-secondary flex-1 disabled:opacity-50 text-center"
+                className="btn-secondary flex-1 disabled:opacity-50 flex items-center justify-center"
               >
                 Cancel
               </button>
@@ -166,7 +166,7 @@ export default function DeleteModal({ isOpen, onClose, onConfirm, sessionId }: D
               <button
                 onClick={handleConfirm}
                 disabled={!canDelete || isDeleting}
-                className="btn-danger flex-1 disabled:opacity-50 disabled:cursor-not-allowed text-center"
+                className="btn-danger flex-1 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
               >
                 {isDeleting ? (
                   <>
