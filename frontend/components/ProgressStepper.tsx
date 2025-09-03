@@ -30,15 +30,6 @@ export default function ProgressStepper({
   artifactsReady = false,
   onViewDocuments
 }: ProgressStepperProps) {
-  // Debug logging for progress stepper
-  console.log('ProgressStepper props:', {
-    currentStep,
-    completedSteps,
-    failedSteps,
-    status,
-    stepProgress,
-    detailedStatusMessage
-  })
   const getStepStatus = (stepId: string) => {
     if (failedSteps.includes(stepId)) return 'failed'
     if (completedSteps.includes(stepId)) return 'completed'

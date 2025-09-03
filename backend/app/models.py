@@ -2,6 +2,15 @@ from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
 from datetime import datetime
 
+class ArtifactInfo(BaseModel):
+    name: str
+    type: str
+    filename: str
+    path: str
+    size: int
+    created_at: str
+    modified_at: str
+
 class SessionCreate(BaseModel):
     files: List[str]
 
@@ -30,7 +39,7 @@ class SessionStatus(BaseModel):
     step_start_time: Optional[datetime] = None
     estimated_completion_time: Optional[datetime] = None
     detailed_status_message: str = ""
-    artifacts_available: List[str] = []
+    artifacts_available: List[ArtifactInfo] = []
 
 class SessionDelete(BaseModel):
     confirm: bool
@@ -79,4 +88,4 @@ class SessionData(BaseModel):
     step_start_time: Optional[datetime] = None
     estimated_completion_time: Optional[datetime] = None
     detailed_status_message: str = ""
-    artifacts_available: List[str] = []
+    artifacts_available: List[ArtifactInfo] = []

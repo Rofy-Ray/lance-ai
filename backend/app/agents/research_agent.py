@@ -1,22 +1,35 @@
 import json
+import os
 from typing import Dict, Any, List
 from datetime import datetime
 
 from langchain.schema import BaseMessage, HumanMessage
 from langchain_openai import ChatOpenAI
+from tavily import TavilyClient
 
 class ResearchAgent:
-    """Research Retrieval & Verification Agent"""
+    """Research Retrieval & Verification Agent with Web Search"""
     
     def __init__(self, llm: ChatOpenAI):
         self.llm = llm
         self.agent_id = "research"
+        # Initialize Tavily client for web search
+        self.tavily_client = None
+        tavily_api_key = os.getenv('TAVILY_API_KEY')
+        if tavily_api_key:
+            try:
+                self.tavily_client = TavilyClient(api_key=tavily_api_key)
+            except Exception as e:
+                print(f"Warning: Could not initialize Tavily client: {e}")
     
     async def process(self, session_id: str, jurisdiction: str, time_horizon_years: int = 5) -> Dict[str, Any]:
-        """Find relevant legal authorities for jurisdiction"""
+        """Find relevant legal authorities for jurisdiction using web search and LLM"""
         try:
-            # Create research prompt
-            prompt = self._create_research_prompt(session_id, jurisdiction, time_horizon_years)
+            # First, perform web search for relevant legal information
+            web_search_results = await self._perform_web_search(jurisdiction)
+            
+            # Create research prompt with web search results
+            prompt = self._create_research_prompt(session_id, jurisdiction, time_horizon_years, web_search_results)
             
             # Call LLM
             messages = [HumanMessage(content=prompt)]
@@ -28,6 +41,10 @@ class ResearchAgent:
             except json.JSONDecodeError:
                 result = self._create_offline_response(session_id, jurisdiction)
             
+            # Add web search sources to result
+            if web_search_results:
+                result['web_sources'] = web_search_results
+            
             # Validate output
             result = self._validate_research_output(session_id, result)
             
@@ -36,13 +53,66 @@ class ResearchAgent:
         except Exception as e:
             return self._create_offline_response(session_id, jurisdiction, f"Research error: {str(e)}")
     
-    def _create_research_prompt(self, session_id: str, jurisdiction: str, time_horizon_years: int) -> str:
-        """Create research prompt"""
+    async def _perform_web_search(self, jurisdiction: str) -> List[Dict[str, Any]]:
+        """Perform web search for relevant legal information"""
+        if not self.tavily_client:
+            return []
+        
+        try:
+            search_queries = [
+                f"{jurisdiction} coercive control family law statutes",
+                f"{jurisdiction} post separation abuse legal cases",
+                f"{jurisdiction} domestic violence custody modification law",
+                f"{jurisdiction} family court restraining order requirements"
+            ]
+            
+            all_results = []
+            for query in search_queries:
+                try:
+                    response = self.tavily_client.search(
+                        query=query,
+                        search_depth="advanced",
+                        max_results=3,
+                        include_domains=["justia.com", "findlaw.com", "law.cornell.edu", 
+                                       "leginfo.legislature.ca.gov", "courts.ca.gov",
+                                       "nolo.com", "womenslaw.org"]
+                    )
+                    
+                    for result in response.get('results', []):
+                        all_results.append({
+                            'title': result.get('title', ''),
+                            'url': result.get('url', ''),
+                            'content': result.get('content', '')[:500],  # Limit content length
+                            'score': result.get('score', 0),
+                            'query': query
+                        })
+                except Exception as e:
+                    print(f"Web search error for query '{query}': {e}")
+            
+            # Sort by relevance score and return top results
+            all_results.sort(key=lambda x: x.get('score', 0), reverse=True)
+            return all_results[:10]
+            
+        except Exception as e:
+            print(f"Web search failed: {e}")
+            return []
+    
+    def _create_research_prompt(self, session_id: str, jurisdiction: str, time_horizon_years: int, web_results: List[Dict[str, Any]]) -> str:
+        """Create research prompt with web search results"""
         
         current_year = datetime.now().year
         start_year = current_year - time_horizon_years
         
-        return f"""Find top statutes/cases/practice guides on coercive control and PSLA in {jurisdiction} (past {time_horizon_years} years). Provide pinpoint quotes and relevance.
+        # Format web search results
+        web_context = ""
+        if web_results:
+            web_context = "\n\nWEB SEARCH RESULTS:\n"
+            for i, result in enumerate(web_results[:5], 1):
+                web_context += f"\n{i}. {result['title']}\n"
+                web_context += f"   URL: {result['url']}\n"
+                web_context += f"   Content: {result['content'][:200]}...\n"
+        
+        return f"""Find top statutes/cases/practice guides on coercive control and PSLA in {jurisdiction} (past {time_horizon_years} years). Provide pinpoint quotes and relevance.{web_context}
 
 Session ID: {session_id}
 Jurisdiction: {jurisdiction}

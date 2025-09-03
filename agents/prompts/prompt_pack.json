@@ -22,21 +22,21 @@
   },
   {
     "id": "hearing_pack",
-    "prompt_template": "Draft a hearing_pack.docx: exhibit index, proposed findings of fact (each finding must cite a source). Do not introduce new facts.",
+    "prompt_template": "Draft a comprehensive hearing_pack.docx containing: detailed exhibit index with descriptions, proposed findings of fact (each finding must cite specific source documents with page/line references), legal argument outline, and case timeline. Each finding must be supported by direct quotes from analyzed documents. Do not introduce new facts not found in the source materials.",
     "input_schema": "schemas/hearing_pack_input.schema.json",
     "output_schema": "schemas/hearing_pack_output.schema.json",
     "eval_thresholds": {"max_pages": 20, "require_citations_for_all_findings": true}
   },
   {
     "id": "client_letter",
-    "prompt_template": "Write a one-page Grade 7-9 plain-language letter summarizing findings, immediate safety steps, and top 5 evidence items to collect. Include 'not legal advice' disclaimer.",
+    "prompt_template": "Write a comprehensive one-page Grade 7-9 plain-language letter summarizing key findings, immediate safety steps, and detailed evidence collection checklist. Must include specific findings from document analysis, actionable safety recommendations, and comprehensive 'not legal advice' disclaimer. Focus on practical guidance and clear explanations.",
     "input_schema": "schemas/client_letter_input.schema.json",
     "output_schema": "schemas/client_letter_output.schema.json",
     "eval_thresholds": {"readability_grade_max": 9}
   },
   {
     "id": "declaration",
-    "prompt_template": "Draft a {n_pages_limit}-page declaration using only cited facts. Number paragraphs and add exhibit callouts.",
+    "prompt_template": "Draft a comprehensive {n_pages_limit}-page declaration using only cited facts from the analyzed documents. Each factual paragraph must include specific quotes with document references. Number all paragraphs sequentially and add proper exhibit callouts (e.g., 'See Exhibit A'). Include standing, background, factual findings with citations, legal conclusions, and verification clause.",
     "input_schema": "schemas/declaration_input.schema.json",
     "output_schema": "schemas/declaration_output.schema.json",
     "eval_thresholds": {"require_citation_each_paragraph": true}

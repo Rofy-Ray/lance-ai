@@ -17,14 +17,19 @@ export default function DeleteModal({ isOpen, onClose, onConfirm, sessionId }: D
     setIsDeleting(true)
     try {
       await onConfirm()
-    } finally {
-      setIsDeleting(false)
+      // Only clear fields on successful deletion
       setConfirmText('')
       setConfirmCheck(false)
+      onClose()
+    } catch (error) {
+      console.error('Delete confirmation failed:', error)
+      // Don't clear fields on error so user can retry
+    } finally {
+      setIsDeleting(false)
     }
   }
 
-  const canDelete = confirmCheck && confirmText.toLowerCase().trim() === 'delete'
+  const canDelete = confirmCheck && confirmText.trim() === 'DELETE'
 
   if (!isOpen) return null
 
@@ -34,7 +39,7 @@ export default function DeleteModal({ isOpen, onClose, onConfirm, sessionId }: D
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+        className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-8 z-50"
         onClick={onClose}
       >
         <motion.div
@@ -153,7 +158,7 @@ export default function DeleteModal({ isOpen, onClose, onConfirm, sessionId }: D
               <button
                 onClick={onClose}
                 disabled={isDeleting}
-                className="btn-secondary flex-1 disabled:opacity-50"
+                className="btn-secondary flex-1 disabled:opacity-50 text-center"
               >
                 Cancel
               </button>
@@ -161,7 +166,7 @@ export default function DeleteModal({ isOpen, onClose, onConfirm, sessionId }: D
               <button
                 onClick={handleConfirm}
                 disabled={!canDelete || isDeleting}
-                className="btn-danger flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="btn-danger flex-1 disabled:opacity-50 disabled:cursor-not-allowed text-center"
               >
                 {isDeleting ? (
                   <>

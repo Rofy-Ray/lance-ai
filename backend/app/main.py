@@ -1,6 +1,7 @@
 import os
 import uuid
 import asyncio
+import traceback
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Any
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
@@ -64,13 +65,19 @@ async def startup_event():
 
 async def ttl_cleanup_task():
     """Background task to clean up expired sessions"""
+    # Calculate cleanup interval as 10% of session TTL, with reasonable bounds
+    cleanup_interval = max(60, min(SESSION_TTL_SECONDS // 10, 600))  # Between 1-10 minutes
+    error_retry_interval = max(30, cleanup_interval // 10)  # 10% of cleanup interval for errors
+    
+    logger.info(f"Starting TTL cleanup task: checking every {cleanup_interval}s (TTL: {SESSION_TTL_SECONDS}s)")
+    
     while True:
         try:
             await purge_service.cleanup_expired_sessions()
-            await asyncio.sleep(300)  # Check every 5 minutes
+            await asyncio.sleep(cleanup_interval)
         except Exception as e:
-            print(f"TTL cleanup error: {e}")
-            await asyncio.sleep(60)  # Retry in 1 minute on error
+            logger.error(f"TTL cleanup error: {e}")
+            await asyncio.sleep(error_retry_interval)
 
 @app.get("/api/health")
 async def health_check():
@@ -153,7 +160,7 @@ async def start_analysis(session_id: str, background_tasks: BackgroundTasks):
 @app.post("/api/session/{session_id}/answer")
 async def answer_clarifying_questions(
     session_id: str,
-    answers: Dict[str, str],
+    request_body: Dict[str, Any],
     background_tasks: BackgroundTasks
 ):
     """Accept answers to clarifying questions and continue pipeline"""
@@ -162,15 +169,19 @@ async def answer_clarifying_questions(
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
         
+        # Extract answers from request body
+        answers = request_body.get('answers', {})
+        
         # Save answers to session
         await session_manager.save_clarifying_answers(session_id, answers)
         
-        # Continue with analysis pipeline
-        background_tasks.add_task(agents_runner.continue_pipeline, session_id)
+        # Continue with analysis pipeline via agents_runner method
+        background_tasks.add_task(agents_runner.process_clarifying_answers, session_id, answers)
         
         return {"status": "answers_received", "message": "Continuing analysis with provided information"}
         
     except Exception as e:
+        logger.error(f"Failed to process clarifying answers for session {session_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to process answers: {str(e)}")
 
 @app.get("/api/session/{session_id}/status", response_model=SessionStatus)
@@ -259,8 +270,26 @@ async def download_artifact(session_id: str, artifact_name: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to download artifact: {str(e)}")
 
+@app.delete("/api/session/{session_id}")
+async def delete_session(session_id: str):
+    """Delete session endpoint matching frontend expectations"""
+    try:
+        session = await session_manager.get_session(session_id)
+        if not session:
+            # Return success even if session not found (idempotent deletion)
+            return {"status": "deleted", "message": "Session not found or already deleted"}
+        
+        # Execute purge routine
+        await purge_service.purge_session(session_id)
+        
+        return {"status": "deleted", "message": "Session and all data permanently deleted"}
+        
+    except Exception as e:
+        logger.error(f"Failed to delete session {session_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete session: {str(e)}")
+
 @app.post("/api/session/{session_id}/delete")
-async def delete_session(session_id: str, delete_request: SessionDelete):
+async def delete_session_with_confirmation(session_id: str, delete_request: SessionDelete):
     """Manual session deletion with confirmation"""
     try:
         if not delete_request.confirm:

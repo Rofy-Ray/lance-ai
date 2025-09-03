@@ -101,7 +101,10 @@ class SessionManager:
         
         # Update additional fields if provided
         for key, value in kwargs.items():
-            if key in session:
+            # Always update these fields, even if not in session
+            if key in ['pending_questions', 'clarifying_questions', 'has_clarifying_questions']:
+                session[key] = value
+            elif key in session:
                 session[key] = value
         
         # Update step timing if provided
@@ -211,7 +214,7 @@ class SessionManager:
         async with aiosqlite.connect(self.db_path) as db:
             async with db.execute(
                 "SELECT session_id FROM sessions WHERE expires_at <= ?",
-                (datetime.utcnow().isoformat(),)
+                (datetime.utcnow().isoformat() + "Z",)
             ) as cursor:
                 async for row in cursor:
                     expired_sessions.append(row[0])

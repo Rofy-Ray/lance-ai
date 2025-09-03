@@ -15,16 +15,19 @@ class PSLAAgent:
         self.agent_id = "psla"
     
     async def process(self, session_id: str, intake_output: Dict[str, Any]) -> Dict[str, Any]:
-        """Classify filings and detect legal abuse patterns"""
+        """Classify incidents as PSLA patterns"""
         try:
+            # Search for PSLA patterns in documents
+            psla_evidence = await self._search_psla_patterns(session_id)
+            
+            # Create prompt with intake incidents and PSLA evidence
+            prompt = self._create_psla_prompt(intake_output, psla_evidence)
+            
             # Extract filings from intake
             filings = self._extract_filings(intake_output)
             
             if not filings:
                 return self._create_empty_response(session_id, "No filings found for PSLA analysis")
-            
-            # Create PSLA analysis prompt
-            prompt = self._create_psla_prompt(session_id, filings)
             
             # Call LLM
             messages = [HumanMessage(content=prompt)]
@@ -47,37 +50,37 @@ class PSLAAgent:
         except Exception as e:
             return self._create_empty_response(session_id, f"PSLA analysis error: {str(e)}")
     
-    def _extract_filings(self, intake_output: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Extract legal filings from intake output"""
-        filings = []
+    async def _search_psla_patterns(self, session_id: str) -> List[Dict[str, Any]]:
+        """Search for post-separation legal abuse patterns"""
+        psla_queries = [
+            "litigation abuse frivolous motions court",
+            "custody threats withholding children visitation",
+            "false allegations accusations lies court",
+            "harassment through legal system proceedings",
+            "financial abuse support payments hiding assets",
+            "violating court orders contempt non-compliance",
+            "emergency motions ex parte manipulation"
+        ]
         
-        for doc in intake_output.get("docs", []):
-            # Identify legal filings vs other documents
-            doc_type = doc.get("type", "").lower()
-            filename = doc.get("filename", "").lower()
-            
-            is_filing = any(term in doc_type or term in filename for term in [
-                "motion", "petition", "brief", "pleading", "filing", "complaint", 
-                "response", "reply", "order", "judgment", "subpoena", "discovery"
-            ])
-            
-            if is_filing or doc.get("incidents"):  # Include docs with incidents
-                filing_info = {
-                    "filing_id": f"filing_{len(filings) + 1}",
-                    "doc_id": doc.get("doc_id", "unknown"),
-                    "filename": doc.get("filename", "unknown"),
-                    "type": doc.get("type", "unknown"),
-                    "date": doc.get("date"),
-                    "summary": doc.get("summary", ""),
-                    "incidents": doc.get("incidents", []),
-                    "parties": doc.get("parties", [])
-                }
-                filings.append(filing_info)
+        all_results = []
+        for query in psla_queries:
+            results = await self.faiss_store.search_session(session_id, query, k=3)
+            all_results.extend(results)
         
-        return filings
+        return all_results[:15]
     
-    def _create_psla_prompt(self, session_id: str, filings: List[Dict[str, Any]]) -> str:
+    def _create_psla_prompt(self, intake_output: Dict[str, Any], psla_evidence: List[Dict[str, Any]]) -> str:
         """Create PSLA analysis prompt"""
+        
+        # Extract filings from intake output
+        filings = self._extract_filings(intake_output)
+        session_id = intake_output.get("session_id", "unknown")
+        
+        # Format PSLA evidence
+        evidence_text = "\n\nPSLA EVIDENCE FROM DOCUMENTS:\n"
+        for i, evidence in enumerate(psla_evidence[:10], 1):
+            evidence_text += f"\n{i}. [Doc: {evidence['doc_id']}]\n"
+            evidence_text += f"   Text: {evidence['text'][:150]}...\n"
         
         filing_summaries = []
         for i, filing in enumerate(filings[:8]):  # Limit to avoid token limits

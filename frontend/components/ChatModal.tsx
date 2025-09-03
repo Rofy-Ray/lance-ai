@@ -20,13 +20,43 @@ export default function ChatModal({ isOpen, onClose, questions, onSubmit }: Chat
   const [currentAnswer, setCurrentAnswer] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  // Map agent names to descriptive titles
+  const getAgentDisplayName = (agentName: string) => {
+    const agentMap: { [key: string]: string } = {
+      'intake': 'Document Intake Agent',
+      'analysis': 'Legal Analysis Agent',
+      'psla': 'PSLA Assessment Agent',
+      'hearing_pack': 'Hearing Pack Agent',
+      'declaration': 'Declaration Agent',
+      'client_letter': 'Client Letter Agent',
+      'research': 'Legal Research Agent',
+      'quality_gate': 'Quality Assurance Agent'
+    }
+    
+    return agentMap[agentName?.toLowerCase()] || `${agentName} Agent`
+  }
+
+  // Initialize state when modal opens or questions change
   useEffect(() => {
     if (isOpen && questions.length > 0) {
-      setCurrentQuestionIndex(0)
-      setAnswers(new Array(questions.length).fill(''))
-      setCurrentAnswer('')
+      // Only reset if we don't already have the right number of answers
+      if (answers.length !== questions.length) {
+        setCurrentQuestionIndex(0)
+        setAnswers(new Array(questions.length).fill(''))
+        setCurrentAnswer('')
+      }
     }
-  }, [isOpen, questions])
+  }, [isOpen, questions.length, answers.length])
+
+  // Reset everything when modal is closed
+  useEffect(() => {
+    if (!isOpen) {
+      setCurrentQuestionIndex(0)
+      setAnswers([])
+      setCurrentAnswer('')
+      setIsSubmitting(false)
+    }
+  }, [isOpen])
 
   const currentQuestion = questions[currentQuestionIndex]
 
@@ -100,7 +130,7 @@ export default function ChatModal({ isOpen, onClose, questions, onSubmit }: Chat
                   Clarification Needed
                 </h2>
                 <p className="dm-sans-small-400 text-secondary-500 dark:text-secondary-400 mt-1">
-                  Question {currentQuestionIndex + 1} of {questions.length} • From {currentQuestion?.agent} agent
+                  Question {currentQuestionIndex + 1} of {questions.length} • From {getAgentDisplayName(currentQuestion?.agent || '')}
                 </p>
               </div>
               <button

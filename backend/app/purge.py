@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import List
 import asyncio
 import logging
+import json
+import aiosqlite
 
 from app.session_manager import SessionManager
 from app.faiss_store import FAISSStore
@@ -23,11 +25,17 @@ class PurgeService:
         try:
             logger.info(f"Starting purge of session {session_id}")
             
-            # 1. Get session data before deletion
-            session = await self.session_manager.get_session(session_id)
-            if not session:
-                logger.debug(f"Session {session_id} already purged or not found")
-                return True  # Consider already-purged sessions as successful
+            # 1. Get session data before deletion (check both expired and active)
+            async with aiosqlite.connect(self.session_manager.db_path) as db:
+                async with db.execute(
+                    "SELECT data FROM sessions WHERE session_id = ?",
+                    (session_id,)
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    if not row:
+                        logger.debug(f"Session {session_id} already purged or not found")
+                        return True  # Consider already-purged sessions as successful
+                    session = json.loads(row[0])
             
             # 2. Delete session files and directories
             session_dir = self.upload_tmp_dir / f"session_{session_id}"
@@ -46,9 +54,12 @@ class PurgeService:
             self.faiss_store.cleanup_session(session_id)
             logger.info(f"Cleaned up FAISS index for session {session_id}")
             
-            # 5. Delete session from database
-            await self.session_manager.delete_session(session_id)
-            logger.info(f"Deleted session from database: {session_id}")
+            # 5. Delete session from database (with error handling)
+            try:
+                await self.session_manager.delete_session(session_id)
+                logger.info(f"Deleted session from database: {session_id}")
+            except Exception as db_error:
+                logger.warning(f"Session {session_id} may already be deleted from database: {db_error}")
             
             logger.info(f"Successfully purged session {session_id}")
             return True

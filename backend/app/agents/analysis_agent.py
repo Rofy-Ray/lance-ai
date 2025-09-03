@@ -17,19 +17,13 @@ class AnalysisAgent:
         self.agent_id = "analysis"
     
     async def process(self, session_id: str, intake_output: Dict[str, Any]) -> Dict[str, Any]:
-        """Map incidents to legal elements of coercive control"""
+        """Analyze incidents for coercive control patterns"""
         try:
-            # Extract incidents from intake
-            incidents = self._extract_incidents(intake_output)
+            # Search for coercive control patterns in documents
+            pattern_evidence = await self._search_coercive_patterns(session_id)
             
-            if not incidents:
-                return self._create_empty_response(session_id, "No incidents found for analysis")
-            
-            # Get jurisdiction from clarifying answers if available
-            jurisdiction = "Unknown"  # Will be populated by orchestrator if available
-            
-            # Create analysis prompt
-            prompt = self._create_analysis_prompt(session_id, incidents, jurisdiction)
+            # Create prompt with intake data and pattern evidence
+            prompt = self._create_analysis_prompt(intake_output, pattern_evidence)
             
             # Call LLM
             messages = [HumanMessage(content=prompt)]
@@ -52,10 +46,28 @@ class AnalysisAgent:
         except Exception as e:
             return self._create_empty_response(session_id, f"Analysis error: {str(e)}")
     
-    def _extract_incidents(self, intake_output: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Extract all incidents from intake output"""
-        incidents = []
+    async def _search_coercive_patterns(self, session_id: str) -> List[Dict[str, Any]]:
+        """Search for coercive control patterns using vector database"""
+        pattern_queries = [
+            "isolation from family friends support network",
+            "monitoring surveillance tracking location",
+            "financial control restricting access money",
+            "threats intimidation fear safety",
+            "gaslighting manipulation reality questioning",
+            "using children leverage manipulation custody",
+            "legal abuse frivolous lawsuits motions"
+        ]
         
+        all_results = []
+        for query in pattern_queries:
+            results = await self.faiss_store.search_session(session_id, query, k=5)
+            all_results.extend(results)
+        
+        return all_results[:20]  # Return top 20 most relevant chunks
+    
+    def _create_analysis_prompt(self, intake_output: Dict[str, Any], pattern_evidence: List[Dict[str, Any]]) -> str:
+        """Create analysis prompt with pattern evidence"""
+        incidents = []
         for doc in intake_output.get("docs", []):
             for incident in doc.get("incidents", []):
                 incidents.append({
@@ -63,10 +75,11 @@ class AnalysisAgent:
                     "source_doc": doc.get("doc_id", "unknown")
                 })
         
-        return incidents
-    
-    def _create_analysis_prompt(self, session_id: str, incidents: List[Dict[str, Any]], jurisdiction: str) -> str:
-        """Create legal analysis prompt"""
+        # Format pattern evidence
+        evidence_text = "\n\nCOERCIVE CONTROL EVIDENCE FROM DOCUMENTS:\n"
+        for i, evidence in enumerate(pattern_evidence[:10], 1):
+            evidence_text += f"\n{i}. [Doc: {evidence['doc_id']}]\n"
+            evidence_text += f"   Text: {evidence['text'][:150]}...\n"
         
         # Summarize incidents
         incident_summaries = []
@@ -82,13 +95,7 @@ Incident {i+1}:
 - Confidence: {incident.get('confidence', 0)}
 """)
         
-        return f"""Act as a family-law analyst. Map intake incidents to coercive-control legal elements for {jurisdiction}. Output legal_matrix.json with severity 0-5 and citations for each element. Propose two mapping frameworks and recommend one.
-
-Session ID: {session_id}
-Jurisdiction: {jurisdiction}
-
-Incidents to analyze:
-{chr(10).join(incident_summaries)}
+        return f"""Act as a forensic pattern-analyst specializing in coercive control. Map incidents to legal elements and assess severity.\n\nINCIDENTS TO ANALYZE:\n{json.dumps(incidents, indent=2)}\n{evidence_text}\n\nMap each incident to legal elements with severity scores (0-1). Look for patterns of: 
 
 Legal elements to consider:
 1. Pattern of Control and Dominance

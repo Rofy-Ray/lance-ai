@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import Layout from '../../components/Layout'
 import ProgressStepper from '../../components/ProgressStepper'
@@ -62,9 +62,21 @@ export default function SessionPage() {
   const [error, setError] = useState<string | null>(null)
   const [showChatModal, setShowChatModal] = useState(false)
   const [showArtifacts, setShowArtifacts] = useState(false)
+  const [artifactsAutoOpened, setArtifactsAutoOpened] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null)
   const [countdownText, setCountdownText] = useState<string>('')
+  const [countdownInterval, setCountdownInterval] = useState<NodeJS.Timeout | null>(null)
+  const [deletionInProgress, setDeletionInProgress] = useState(false)
+  const [autoDeleteAttempted, setAutoDeleteAttempted] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  
+  // Refs to prevent race conditions and ensure cleanup
+  const deletionInProgressRef = useRef(false)
+  const autoDeleteAttemptedRef = useRef(false)
+  const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const componentMountedRef = useRef(true)
 
   // Fetch session status
   const fetchSessionStatus = async () => {
@@ -73,8 +85,8 @@ export default function SessionPage() {
     try {
       const response = await axios.get(`/api/session/${sessionId}/status`)
       const status: SessionStatus = response.data
-      console.log('Received session status:', status)
       setSessionStatus(status)
+      setLoading(false)
       setError(null)
 
       // Stop polling if session is completed, error, or deleted
@@ -85,15 +97,18 @@ export default function SessionPage() {
         }
       }
 
-      // Show chat modal if there are pending questions
-      if (status.pending_questions && status.pending_questions.length > 0) {
+      // Show chat modal if there are pending questions (automatically open modal)
+      if (status.status === 'waiting_for_input' && status.pending_questions && status.pending_questions.length > 0 && !showChatModal) {
         setShowChatModal(true)
       }
 
-      // Show artifacts panel if artifacts are ready
+      // Show artifacts panel if artifacts are ready (only once)
       if ((status.status === 'completed' || status.status === 'requires_review') && 
-          status.artifacts_ready && status.artifacts_available.length > 0) {
+          status.artifacts_ready && status.artifacts_available && status.artifacts_available.length > 0 && 
+          !artifactsAutoOpened) {
+        console.log('Opening artifacts modal - artifacts ready:', status.artifacts_available)
         setShowArtifacts(true)
+        setArtifactsAutoOpened(true)
         // Show completion notification
         if (!localStorage.getItem(`notified_${sessionId}`)) {
           toast.success('Analysis complete! Your legal documents are ready for download.')
@@ -101,6 +116,11 @@ export default function SessionPage() {
         }
         
         // Start countdown timer
+        const cleanup = updateCountdown(status.expires_at)
+        return cleanup
+      } else if ((status.status === 'completed' || status.status === 'requires_review') && 
+                 status.artifacts_ready && artifactsAutoOpened) {
+        // Just update countdown for already completed sessions without reopening modal
         const cleanup = updateCountdown(status.expires_at)
         return cleanup
       }
@@ -116,7 +136,6 @@ export default function SessionPage() {
       // Handle specific error cases
       if (err.response?.status === 404) {
         setError('Session not found or has expired')
-        console.log('Session 404 - stopping all polling and redirecting')
         // Immediately stop polling and redirect to home
         if (pollingInterval) {
           clearInterval(pollingInterval)
@@ -161,42 +180,128 @@ export default function SessionPage() {
   }
 
   // Handle chat response
-  const handleChatResponse = async (answer: string) => {
-    if (!sessionId || typeof sessionId !== 'string') return
-
+  const handleChatResponse = async (response: string) => {
     try {
-      await axios.post(`/api/session/${sessionId}/answer`, { answer })
-      setShowChatModal(false)
-      toast.success('Response submitted!')
+      setIsSubmitting(true)
       
-      // Resume polling
-      if (!pollingInterval) {
-        const interval = setInterval(fetchSessionStatus, 2000)
-        setPollingInterval(interval)
+      // Parse the response to extract structured answers
+      let answers: { [key: string]: string } = {}
+      try {
+        // Try to parse as JSON first
+        const parsed = JSON.parse(response)
+        if (typeof parsed === 'object' && parsed !== null) {
+          answers = parsed
+        } else {
+          // Fallback: create a single answer
+          answers = { 'general_response': response }
+        }
+      } catch {
+        // If parsing fails, create a single answer entry
+        answers = { 'general_response': response }
       }
       
-    } catch (err: any) {
-      console.error('Failed to submit answer:', err)
-      toast.error(err.response?.data?.detail || 'Failed to submit response')
+      const apiResponse = await fetch(`/api/session/${sessionId}/answer`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ answers })
+      })
+      
+      if (!apiResponse.ok) {
+        const errorData = await apiResponse.json().catch(() => ({}))
+        throw new Error(errorData.detail || 'Failed to submit answers')
+      }
+      
+      const result = await apiResponse.json()
+      
+      // Close both modals and resume polling
+      setShowChatModal(false)
+      
+      // Resume polling to track progress
+      if (!pollingInterval) {
+        const intervalId = setInterval(fetchSessionStatus, 2000)
+        setPollingInterval(intervalId)
+      }
+      
+      // Force an immediate status fetch to see progress continue
+      await fetchSessionStatus()
+      
+      toast.success('Answers submitted successfully! Continuing analysis...')
+      
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to submit answers')
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
   // Handle session deletion
   const handleDeleteSession = async () => {
-    if (!sessionId || typeof sessionId !== 'string') return
+    if (!sessionId || typeof sessionId !== 'string' || deletionInProgressRef.current) return
+
+    // Immediately set refs to prevent race conditions
+    deletionInProgressRef.current = true
+    setDeletionInProgress(true)
+    
+    // Clear all intervals immediately using refs
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current)
+      pollingIntervalRef.current = null
+      setPollingInterval(null)
+    }
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current)
+      countdownIntervalRef.current = null
+      setCountdownInterval(null)
+    }
 
     try {
-      await axios.post(`/api/session/${sessionId}/delete`, { confirm: true })
-      toast.success('Session deleted successfully')
+      await axios.delete(`/api/session/${sessionId}`)
+      toast.success('Session deleted successfully!')
       router.push('/')
-    } catch (err: any) {
-      console.error('Failed to delete session:', err)
-      toast.error(err.response?.data?.detail || 'Failed to delete session')
+    } catch (error: any) {
+      
+      // Handle different error scenarios
+      if (error.response?.status === 404) {
+        // Session already deleted (likely by TTL cleanup) - don't reset deletion flags
+        if (componentMountedRef.current) {
+          toast.success('Session has already been cleaned up')
+          router.push('/')
+        }
+      } else if (error.response?.status === 500) {
+        // For 500 errors, don't show toast and don't reset flags to prevent retries
+        if (componentMountedRef.current) {
+          router.push('/')
+        }
+      } else if (error.code === 'NETWORK_ERROR' || !error.response) {
+        // Only reset on actual network errors
+        deletionInProgressRef.current = false
+        setDeletionInProgress(false)
+        if (componentMountedRef.current) {
+          toast.error('Network error. Please check your connection and try again.')
+        }
+      } else {
+        // Reset for other errors that might be temporary
+        deletionInProgressRef.current = false
+        setDeletionInProgress(false)
+        if (componentMountedRef.current) {
+          const errorMessage = error.response?.data?.detail || error.message || 'Failed to delete session'
+          toast.error(errorMessage)
+        }
+      }
     }
   }
 
   // Update countdown timer
   const updateCountdown = (expiresAt: string) => {
+    // Clear any existing countdown interval first using refs
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current)
+      countdownIntervalRef.current = null
+      setCountdownInterval(null)
+    }
+
     const updateTimer = () => {
       const now = new Date().getTime()
       const expiry = new Date(expiresAt).getTime()
@@ -204,6 +309,34 @@ export default function SessionPage() {
 
       if (timeLeft <= 0) {
         setCountdownText('Files have expired')
+        // Auto-delete session only if not already attempted and not in progress (use refs for immediate check)
+        if (!deletionInProgressRef.current && !autoDeleteAttemptedRef.current && componentMountedRef.current) {
+          
+          // Immediately set refs to prevent any other timers from triggering
+          deletionInProgressRef.current = true
+          autoDeleteAttemptedRef.current = true
+          setDeletionInProgress(true)
+          setAutoDeleteAttempted(true)
+          
+          // Clear ALL intervals immediately to prevent any repeated firing
+          if (countdownIntervalRef.current) {
+            clearInterval(countdownIntervalRef.current)
+            countdownIntervalRef.current = null
+            setCountdownInterval(null)
+          }
+          
+          // Single toast notification with unique ID
+          toast('Session expired. Cleaning up files and redirecting...', {
+            icon: '⏰',
+            id: `session-expired-${sessionId}` // Unique ID per session
+          })
+          
+          // Use immediate async call
+          handleDeleteSession().catch(error => {
+            console.error('Auto-deletion failed:', error)
+            // Don't reset deletion flags on error to prevent retries
+          })
+        }
         return
       }
 
@@ -221,10 +354,16 @@ export default function SessionPage() {
     }
 
     updateTimer()
-    const countdownInterval = setInterval(updateTimer, 1000)
+    const newCountdownInterval = setInterval(updateTimer, 1000)
+    countdownIntervalRef.current = newCountdownInterval
+    setCountdownInterval(newCountdownInterval)
     
     // Clean up on component unmount
-    return () => clearInterval(countdownInterval)
+    return () => {
+      clearInterval(newCountdownInterval)
+      countdownIntervalRef.current = null
+      setCountdownInterval(null)
+    }
   }
 
   useEffect(() => {
@@ -233,9 +372,31 @@ export default function SessionPage() {
     }
 
     return () => {
+      // Mark component as unmounted
+      componentMountedRef.current = false
+      
+      // Clear intervals using refs for immediate effect
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current)
+        pollingIntervalRef.current = null
+      }
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current)
+        countdownIntervalRef.current = null
+      }
+      
+      // Clear state intervals as well
       if (pollingInterval) {
         clearInterval(pollingInterval)
+        setPollingInterval(null)
       }
+      if (countdownInterval) {
+        clearInterval(countdownInterval)
+        setCountdownInterval(null)
+      }
+      
+      // Reset auto-opened flag when component unmounts
+      setArtifactsAutoOpened(false)
     }
   }, [sessionId])
 
@@ -243,19 +404,22 @@ export default function SessionPage() {
   useEffect(() => {
     if (sessionStatus && ['processing', 'waiting_for_input'].includes(sessionStatus.status)) {
       // Faster polling during active processing (1 second)
-      console.log('Starting fast polling for processing status')
       const interval = setInterval(() => {
-        console.log('Polling for status updates...')
         fetchSessionStatus()
       }, 1000)
+      pollingIntervalRef.current = interval
       setPollingInterval(interval)
     } else if (sessionStatus && sessionStatus.status === 'uploading') {
       // Medium polling for uploading (2 seconds)
-      console.log('Starting medium polling for uploading status')
       const interval = setInterval(fetchSessionStatus, 2000)
+      pollingIntervalRef.current = interval
       setPollingInterval(interval)
-    } else {
-      // Clear polling for completed/error states
+    } else if (sessionStatus && ['completed', 'requires_review', 'error', 'deleted'].includes(sessionStatus.status)) {
+      // STOP all polling for final states
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current)
+        pollingIntervalRef.current = null
+      }
       if (pollingInterval) {
         clearInterval(pollingInterval)
         setPollingInterval(null)
@@ -263,8 +427,13 @@ export default function SessionPage() {
     }
 
     return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current)
+        pollingIntervalRef.current = null
+      }
       if (pollingInterval) {
         clearInterval(pollingInterval)
+        setPollingInterval(null)
       }
     }
   }, [sessionStatus?.status])
@@ -308,8 +477,6 @@ export default function SessionPage() {
     )
   }
 
-  // ... (rest of the code remains the same)
-
   // Fix timezone handling - ensure we're comparing UTC times consistently
   const expiryTime = new Date(sessionStatus.expires_at).getTime()
   const currentTime = Date.now()
@@ -317,28 +484,6 @@ export default function SessionPage() {
   const totalMinutesRemaining = Math.floor(timeRemaining / (1000 * 60))
   const hoursRemaining = Math.floor(totalMinutesRemaining / 60)
   const minutesRemaining = totalMinutesRemaining % 60
-  
-  // Debug logging for time calculation
-  console.log('Time debugging:', {
-    expires_at: sessionStatus.expires_at,
-    current_time: new Date().toISOString(),
-    expiryTime,
-    currentTime,
-    timeRemaining,
-    totalMinutesRemaining,
-    hoursRemaining,
-    minutesRemaining
-  })
-  
-  // Debug session status for progress updates
-  console.log('Current session status for progress:', {
-    status: sessionStatus.status,
-    current_step: sessionStatus.current_step,
-    step_progress: sessionStatus.step_progress,
-    detailed_status_message: sessionStatus.detailed_status_message,
-    completed_stages: sessionStatus.completed_stages,
-    current_stage: sessionStatus.current_stage
-  })
 
   return (
     <Layout title={`Session ${sessionId.slice(-8)} - Lance AI`}>
@@ -407,6 +552,7 @@ export default function SessionPage() {
             </motion.div>
           )}
 
+          {/* Processing Error */}
           {sessionStatus.status === 'error' && (
             <motion.div
               initial={{ opacity: 0, y: -20 }}
@@ -443,33 +589,73 @@ export default function SessionPage() {
           />
 
           {/* Waiting for Input Banner */}
-          {sessionStatus.status === 'waiting_for_input' && sessionStatus.pending_questions && (
+          {sessionStatus.status === 'waiting_for_input' && sessionStatus.pending_questions && sessionStatus.pending_questions.length > 0 && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="card bg-warning-50 dark:bg-warning-900/20 border-warning-200 dark:border-warning-800 mt-8"
+              className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <svg className="h-8 w-8 text-warning-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <div>
-                    <h3 className="dm-sans-body-500 font-medium text-warning-900 dark:text-warning-100">
-                      Clarification Needed
-                    </h3>
-                    <p className="dm-sans-small-400 text-warning-700 dark:text-warning-300">
-                      The AI needs additional information to continue
-                    </p>
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className="bg-gradient-to-r from-orange-50 to-amber-50 dark:from-orange-900/20 dark:to-amber-900/20 rounded-xl shadow-2xl max-w-lg w-full border border-orange-200 dark:border-orange-800 overflow-hidden"
+              >
+                {/* Header */}
+                <div className="px-6 py-4 bg-gradient-to-r from-orange-500 to-amber-500 text-white">
+                  <div className="flex items-center space-x-3">
+                    <div className="p-2 bg-white bg-opacity-20 rounded-full">
+                      <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h2 className="domine-subhead text-xl font-semibold">
+                        Clarification Needed
+                      </h2>
+                      <p className="dm-sans-small-400 text-orange-100">
+                        The AI needs additional information to continue analysis
+                      </p>
+                    </div>
                   </div>
                 </div>
-                <button
-                  onClick={() => setShowChatModal(true)}
-                  className="btn-warning"
-                >
-                  Answer Questions
-                </button>
-              </div>
+
+                {/* Content */}
+                <div className="px-6 py-6">
+                  <div className="text-center space-y-4">
+                    <div className="inline-flex items-center justify-center w-16 h-16 bg-orange-100 dark:bg-orange-900/30 rounded-full">
+                      <svg className="h-8 w-8 text-orange-600 dark:text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h3 className="dm-sans-body-500 font-semibold text-secondary-900 dark:text-white mb-2">
+                        {sessionStatus.pending_questions.length} Question{sessionStatus.pending_questions.length > 1 ? 's' : ''} Remaining
+                      </h3>
+                      <p className="dm-sans-small-400 text-secondary-600 dark:text-secondary-400">
+                        To provide the most accurate legal analysis, we need a few additional details from you.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div className="px-6 py-4 bg-secondary-50 dark:bg-secondary-800/50 border-t border-orange-200 dark:border-orange-800">
+                  <div className="flex justify-center space-x-3">
+                    <button
+                      onClick={() => setShowChatModal(true)}
+                      className="px-6 py-3 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-medium rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"
+                    >
+                      <svg className="h-5 w-5 mr-2 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                      </svg>
+                      Answer Questions
+                    </button>
+                  </div>
+                  <p className="dm-sans-caption-300 text-center text-secondary-500 dark:text-secondary-400 mt-3">
+                    This should only take a minute
+                  </p>
+                </div>
+              </motion.div>
             </motion.div>
           )}
         </div>

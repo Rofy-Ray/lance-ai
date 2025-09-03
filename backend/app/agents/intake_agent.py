@@ -28,8 +28,11 @@ class IntakeAgent:
     async def process(self, session_id: str, documents: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Process documents for intake analysis"""
         try:
-            # Create prompt with wheel data and document content
-            prompt = self._create_intake_prompt(session_id, documents)
+            # First, search for key patterns using vector database
+            key_patterns = await self._search_key_patterns(session_id)
+            
+            # Create prompt with wheel data, document content, and search results
+            prompt = self._create_intake_prompt(session_id, documents, key_patterns)
             
             # Call LLM
             messages = [HumanMessage(content=prompt)]
@@ -67,13 +70,49 @@ class IntakeAgent:
                 "error": str(e)
             }
     
-    def _create_intake_prompt(self, session_id: str, documents: List[Dict[str, Any]]) -> str:
-        """Create intake analysis prompt"""
+    async def _search_key_patterns(self, session_id: str) -> List[Dict[str, Any]]:
+        """Search for key patterns in documents using vector database"""
+        key_searches = [
+            "domestic violence abuse coercive control",
+            "financial abuse economic control money",
+            "child custody parenting time visitation",
+            "restraining order protection order TRO",
+            "harassment stalking threats intimidation",
+            "legal proceedings court filings motions",
+            "post-separation abuse divorce proceedings"
+        ]
+        
+        all_results = []
+        for query in key_searches:
+            results = await self.faiss_store.search_session(session_id, query, k=3)
+            all_results.extend(results)
+        
+        # Deduplicate and sort by relevance
+        seen = set()
+        unique_results = []
+        for result in sorted(all_results, key=lambda x: x.get('score', float('inf'))):
+            key = (result['doc_id'], result['text'][:50])
+            if key not in seen:
+                seen.add(key)
+                unique_results.append(result)
+                if len(unique_results) >= 15:
+                    break
+        
+        return unique_results
+    
+    def _create_intake_prompt(self, session_id: str, documents: List[Dict[str, Any]], search_results: List[Dict[str, Any]]) -> str:
+        """Create intake analysis prompt with vector search results"""
         # Summarize documents for context
         doc_summaries = []
         for doc in documents:
             content_preview = doc["content"][:1000] + "..." if len(doc["content"]) > 1000 else doc["content"]
             doc_summaries.append(f"Document ID: {doc['doc_id']}\nFilename: {doc['filename']}\nContent Preview:\n{content_preview}\n")
+        
+        # Format search results
+        search_evidence = "\n\nKEY EVIDENCE FROM VECTOR SEARCH:\n"
+        for i, result in enumerate(search_results[:10], 1):
+            search_evidence += f"\n{i}. [Doc: {result['doc_id']}, Page: {result.get('page', 'N/A')}]\n"
+            search_evidence += f"   Text: {result['text'][:200]}...\n"
         
         # Create wheel categories description
         wheel_descriptions = []
@@ -87,6 +126,7 @@ Post-Separation Abuse Wheel Categories:
 
 Documents to analyze:
 {chr(10).join(doc_summaries)}
+{search_evidence}
 
 CRITICAL REQUIREMENTS:
 1. Every incident MUST include: quote_span, doc_id, page, line_range
