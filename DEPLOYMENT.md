@@ -14,9 +14,15 @@
 
 **Required Environment Variables:**
 - `OPENAI_API_KEY` = `sk-proj-...` (your OpenAI API key)
+- `TAVILY_API_KEY` = `your_tavily_key`
 - `LANGSMITH_API_KEY` = `your_langsmith_key` (optional)
-- `PORT` = `8000`
-- `HOST` = `0.0.0.0`
+
+**Render Configuration:**
+- **Build Command:** `pip install -r requirements.txt`
+- **Start Command:** `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- **Root Directory:** `backend`
+
+**Important:** Render automatically sets the `PORT` environment variable. The start command must bind to `0.0.0.0` and use `$PORT` to work correctly.
 
 ## Deployment Strategy
 
